@@ -2,206 +2,299 @@
     <p align="center"> Discovering Interpretable Multi-Parameter Control Policies for Evolutionary Algorithms Using Deep Reinforcement Learning </p>
 </h1>
 
+<p align="center">
+    <a href="#-table-of-contents"><img src="https://img.shields.io/badge/docs-quickstart-blue.svg" alt="Documentation"></a>
+    <a href="#-installation"><img src="https://img.shields.io/badge/python-3.10-blue.svg" alt="Python 3.10"></a>
+    <a href="#step-1-find-symbolic-formulas-fit_sr"><img src="https://img.shields.io/badge/symbolic-PySR-purple.svg" alt="PySR"></a>
+    <a href="#step-2-calibrate-constants-tune_formulas"><img src="https://img.shields.io/badge/tuning-SMAC3-orange.svg" alt="SMAC3"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+</p>
+
+> **Turning black-box neural networks into simple, human-readable control formulas.**  
+> Evolutionary algorithms rely heavily on parameter settings (such as population sizes and mutation rates), and the optimal values change continuously as the search progresses. While Deep Reinforcement Learning (deep-RL) can learn powerful dynamic control policies, neural networks act as black boxes—theorists cannot analyze neural weights, and practitioners face high deployment overhead. This project demonstrates how deep-RL can serve as an automated *discovery engine*, extracting transparent algebraic formulas that anyone can read, analyze, and execute in $O(1)$ time with **up to 31%–34% fewer evaluations than theoretical baselines**.
+
+---
+
 ## 🗒️ Table of Contents
 
-- [Introduction](#introduction)
-- [Repository Structure](#repository-structure)
-- [Installation](#installation)
+- [Overview & Intuition](#-overview--intuition)
+- [Repository Structure](#-repository-structure)
+- [Installation](#-installation)
   - [1. Conda Environment & Core Dependencies](#1-conda-environment--core-dependencies)
-  - [2. Symbolic Regression (PySR) Backend Setup](#2-symbolic-regression-pysr-backend-setup)
-- [Quickstart](#quickstart)
-  - [Testing](#testing)
-  - [Baseline and Comparison](#baseline-and-comparison)
-  - [Training](#training)
-- [Symbolic Policy Discovery](#symbolic-policy-discovery)
-  - [Stage I: Behavioral Distillation via Symbolic Regression (PySR)](#stage-i-behavioral-distillation-via-symbolic-regression-pysr)
-  - [Stage II: Online Environmental Calibration (SMAC3)](#stage-ii-online-environmental-calibration-smac3)
+  - [2. Symbolic Regression (PySR) Backend](#2-symbolic-regression-pysr-backend)
+- [How It Works: Step-by-Step](#-how-it-works-step-by-step)
+  - [Step 1: Extract Symbolic Formulas (`fit_sr`)](#step-1-extract-symbolic-formulas-fit_sr)
+  - [Step 2: Calibrate Formula Constants (`tune_formulas`)](#step-2-calibrate-formula-constants-tune_formulas)
+  - [Step 3: Test Generalization & Scale-Up (`test_sr`)](#step-3-test-generalization--scale-up-test_sr)
+  - [Optional: Re-extract Trajectories from Raw Logs](#optional-re-extract-trajectories-from-raw-logs)
+- [Upstream Deep-RL Oracles](#-upstream-deep-rl-oracles)
+- [License](#-license)
 
-## 💡 Introduction
-![](./assets/xdac.png)
+---
 
+## 💡 Overview & Intuition
 
-This repository accompanies the paper *"Discovering Interpretable Multi-Parameter Control Policies for Evolutionary Algorithms Using Deep Reinforcement Learning"* (IEEE Transactions on Evolutionary Computation). We study dynamic control of all four parameters $(\lambda_m, \alpha, \lambda_c, \beta)$ of the $(1+(\lambda,\lambda))$-GA on OneMax using deep-RL, and distill the learned behaviors into interpretable symbolic policies. Key contributions:
+<p align="center">
+  <img src="./assets/xdac.png" alt="Framework Architecture" width="850">
+</p>
 
-- **RL enhancements:** factored action-space decomposition, adaptive reward shifting, and long-horizon discounting together enable effective multi-parameter learning.
-- **DDQN vs. PPO:** PPO collapses to a degenerate policy in this DAC setting; DDQN with the above enhancements consistently learns high-quality policies.
-- **Symbolic policy discovery:** a two-stage pipeline (hand-crafted equations → SMAC3 fine-tuning) yields a policy that outperforms all baselines, including IRACE, across problem sizes up to $n = 40{,}000$.
+### The Core Idea: Distilling Neural Policies into Transparent Math
 
-The environment extends [DACBench](https://github.com/automl/DACBench). See [dacbench/](dacbench/) for details.
+In the $(1+(\lambda,\lambda))$-GA optimizing the OneMax benchmark, four parameters are dynamically controlled based on current solution fitness progress $u = f(x)/n \in [0, 1)$:
+
+| Parameter | Meaning | Practical Intuition |
+| :--- | :--- | :--- |
+| $\lambda_m$ | **Mutation Offspring** | How many mutated candidate solutions to generate each round |
+| $\alpha$ | **Mutation Rate Scaling** | How aggressively bits are flipped ($p = \alpha \lambda_m / n$) |
+| $\lambda_c$ | **Crossover Offspring** | How many crossover solutions to build to repair mutations |
+| $\beta$ | **Crossover Bias** | How strongly offspring inherit from the parent vs. mutant ($c = \beta / \lambda_c$) |
+
+Rather than keeping the learned policy locked inside a neural network, our pipeline translates agent decisions into simple algebraic formulas:
+
+```mermaid
+flowchart LR
+    A["1. Deep-RL Teacher<br/>(Factored DDQN Agent)"] --> B["2. Symbolic Distillation<br/>(PySR Formula Discovery)"]
+    B --> C["3. Hyperparameter Calibration<br/>(SMAC3 Multi-Fidelity)"]
+    C --> D["4. Zero-Shot Deployment<br/>(Scales up to n=40,000)"]
+```
+
+### Key Takeaways from the Discovered Rules
+
+1. **A Shared Rational Scaling Law**: Symbolic regression discovers that both population sizes ($\lambda_m$ and $\lambda_c$) naturally follow a rational schedule:
+   $$\text{Population}(u) \approx \frac{a}{b - u}$$
+   When far from the optimum ($u < 0.9$), small populations conserve function evaluations. As the search approaches the optimum ($u \to 1$), population sizes surge to break through the final plateaus.
+2. **Offspring Polarization**: Optimal search efficiency requires keeping mutation lean ($\lambda_m = 1$) early on to prevent wasted evaluations, while aggressively expanding crossover capacity ($\lambda_c > 500$) near the optimum to accelerate genetic repair.
+3. **Zero-Shot Scale-Invariance**: Because mathematical operators are dimension-independent, formulas tuned on small sizes ($n \le 2{,}000$) seamlessly generalize to huge problem dimensions (tested up to $n = 40{,}000$) with zero retraining.
+
+---
 
 ## 🎯 Repository Structure
 
-Outline the structure of repository.
-
 ```plaintext
 OneMax-MPDAC/
-├── assets/                             # Figures used in this README
-│   └── xdac.png                        # Interpretable RL for Dynamic Algorithm Configuration framework (Fig. 1 in paper)
+├── assets/                             # Visual diagrams and figures
+│   └── xdac.png                        # Framework architecture diagram
 ├── notebooks/
-│   └── test.ipynb                      # Interactive notebook: load a checkpoint and observe ERT
+│   └── test.ipynb                      # Interactive notebook to test trained models
 ├── resources/
-│   ├── ddqn_ckpts/                     # Best DDQN checkpoints (factored, AS, γ=0.9998)
-│   │   └── onemax_n{100,200,500,1000,1500,2000}_fmp_as_09998.pt
-│   └── runtimes/
-│       └── comparison_method_runtimes.json  # Pre-computed ERTs for all baselines
-├── dacbench/                           # Extended DACBench environment
-│   ├── benchmarks/
-│   │   └── theory_benchmark.py         # Benchmark wrapper for the (1+(λ,λ))-GA
-│   ├── envs/
-│   │   ├── theory.py                   # Full 4-parameter (1+(λ,λ))-GA environment
-│   │   ├── ablation_l1_theory.py       # Ablation: control λm only
-│   │   ├── ablation_l1c_theory.py      # Ablation: control λm + α
-│   │   ├── ablation_l1l2_theory.py     # Ablation: control λm + λc
-│   │   ├── ablation_l1l2c_theory.py    # Ablation: control λm + α + λc
-│   │   ├── ablation_l1l2m_theory.py    # Ablation: control λm + λc + β
-│   │   ├── ablation_l1m_theory.py      # Ablation: control λm + β
-│   │   ├── ablation_l1mc_theory.py     # Ablation: control λm + α + β
-│   │   ├── ablation_ppo.py             # Environment variant used for PPO experiments
-│   │   └── policies/theory/            # Theory-derived policy (πTHEORY) implementation
-│   ├── instance_sets/
-│   │   └── ollga_theory/               # Problem instance CSVs for n ∈ {50…40000}
-│   ├── run_baselines.py                # Script to run and record baseline policy runtimes
-│   └── wrappers/                       # Gym wrappers (action tracking, observation, reward noise, …)
-├── xdac/                       # Main project source
-│   ├── comb_ddqn.py                    # Combinatorial DDQN (2401-output Q-network)
-│   ├── fact_ddqn.py                    # Factored DDQN (4-branch action-branching network)
-│   ├── train_ddqn.py                   # Training script for DDQN (combinatorial & factored)
-│   ├── train_comb_ppo.py               # Training script for PPO with combinatorial action space
-│   ├── train_fact_ppo.py               # Training script for PPO with factored action space
-│   ├── fit_pysr.py                     # Stage I: Symbolic regression policy distillation via PySR
-│   ├── eval.py                         # Evaluation utilities (run policy, compute ERT)
-│   ├── tune_derive_mp_policy.py        # Stage II: fine-tune symbolic policy via SMAC3
-│   ├── loggers.py                      # TensorBoard / WandB logging helpers
-│   ├── utils.py                        # Shared utilities
-│   └── configs/
-│       ├── onemax_n{N}_cmp[_as].yml    # DDQN combinatorial configs (N ∈ {100…2000}, optional AS)
-│       ├── onemax_n{N}_fmp[_as][_l1*].yml  # DDQN factored configs (with ablation variants)
-│       ├── onemax_n{N}_sp_l1[_as].yml  # Single-parameter DDQN configs
-│       ├── onemax_n{N}_mp_ppo[_l1*].yml    # Multi-parameter PPO configs (factored & ablation)
-│       ├── onemax_n{N}_sp_ppo.yml      # Single-parameter PPO configs
-│       ├── ablation_ppo/               # PPO reward-shifting ablation configs (b ∈ {0,−1,…,−7})
-│       ├── search_space/               # SMAC3 hyperparameter search space definitions
-│       └── target_function/            # SMAC3 target algorithm wrapper configs
-├── scripts/
-│   ├── fit_pysr.sh                     # Runner script for Stage I PySR fitting
-│   └── run.sh                          # Convenience shell script for launching experiments
+│   ├── ddqn_ckpts/                     # Pre-trained Factored DDQN weights
+│   ├── exps/                           # Raw evaluation logs from training runs
+│   ├── trajectories/                   # Extracted state-action datasets (pkl)
+│   └── runtimes/                       # Pre-computed baseline benchmark data
+├── dacbench/                           # Extended DACBench benchmark suite
+├── xdac/                               # Main Python implementation
+│   ├── fit_sr.py                       # Step 1: Symbolic regression fitting via PySR
+│   ├── tune_formulas.py                # Step 2: Continuous formula tuning via SMAC3
+│   ├── test_sr.py                      # Step 3: Scale-up testing & parameter ablation
+│   ├── extract_trajectories.py         # Helper: Extract best trajectories from logs
+│   ├── fact_ddqn.py                    # Factored DDQN model architecture
+│   ├── comb_ddqn.py                    # Combinatorial DDQN model architecture
+│   ├── train_ddqn.py                   # Deep-RL DDQN training script
+│   ├── train_fact_ppo.py               # Deep-RL PPO training script
+│   └── utils.py                        # Common helper utilities
+├── scripts/                            # Ready-to-run shell scripts
+│   ├── fit_sr.sh                       # Runs PySR symbolic regression
+│   ├── tune_formulas.sh                # Runs SMAC3 hyperparameter tuning
+│   ├── test_sr.sh                      # Runs scale-up evaluation suite
+│   └── run.sh                          # Sample experiment execution script
 ├── requirements.txt
-├── README.md
-└── LICENSE
+└── README.md
 ```
 
-**Config naming conventions:**
-- `cmp` / `fmp` — combinatorial / factored action space representation
-- `sp` / `mp` — single-parameter / multi-parameter control
-- `as` — adaptive reward shifting enabled
-- `l1`, `l1c`, `l1l2`, `l1l2c`, `l1l2m`, `l1m`, `l1mc` — parameter subsets used in ablation study (Section VI of paper): `l1`=λm, `l2`=λc, `c`=α, `m`=β
+---
 
 ## ⚙️ Installation
 
-To reproduce this project, you will need the following dependencies:
-- Linux (Ubuntu 18.04 LTS or later)
-- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda
-- Python 3.10
-- [PyTorch](https://pytorch.org/) (version 2.0 or later)
-
 ### 1. Conda Environment & Core Dependencies
 
-Create and activate a new Conda environment:
+Create and activate a clean Python 3.10 environment:
 
 ```bash
-conda create -n onemaxmpdac python=3.10
+conda create -n onemaxmpdac python=3.10 -y
 conda activate onemaxmpdac
 ```
 
-Install PyTorch according to your hardware/CUDA version (refer to [Installing Previous Versions of PyTorch](https://pytorch.org/get-started/previous-versions/)):
+Install PyTorch suited to your hardware:
 
 ```bash
-# CPU only:
+# CPU only (recommended for symbolic regression & tuning):
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
-# Or for CUDA 11.8:
+# Or for CUDA GPU support:
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
 
-Then install the remaining project dependencies:
+Install the remaining dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Symbolic Regression (PySR) Backend Setup
+### 2. Symbolic Regression (PySR) Backend
 
-Stage I policy distillation uses **PySR** (Symbolic Regression via Genetic Programming), which uses Julia (`SymbolicRegression.jl`) as its high-performance backend via `juliapkg` / `juliacall`.
+PySR connects Python to the high-performance Julia library `SymbolicRegression.jl`.
 
-#### Julia Backend Configuration
-
-`juliapkg` automatically handles downloading and managing the compatible Julia binary upon first initialization.
-
-> [!IMPORTANT]
-> In shared HPC clusters or multi-user environments where Conda/Python is located in a read-only or shared directory, `juliapkg` may attempt to write to system directories and fail with permission errors. To ensure an isolated, fully user-writable workspace for Julia packages and precompiled system images, set the `PYTHON_JULIAPKG_PROJECT` environment variable:
+> [!TIP]
+> In shared HPC or university clusters where Conda paths might be read-only, ensure Julia packages install to your home directory:
 
 ```bash
-# Add to your ~/.bashrc or export in your active session:
 export PYTHON_JULIAPKG_PROJECT="$HOME/.julia_env"
 ```
 
-#### Precompile the Backend
-
-Initialize PySR once to download the Julia runtime, install `SymbolicRegression.jl`, and precompile all Julia dependencies:
+Initialize and precompile Julia once (takes ~1–2 minutes, subsequent runs load instantly):
 
 ```bash
 python -c "import pysr"
 ```
 
-*Note: Initial precompilation takes approximately 1–2 minutes. Subsequent runs load instantly from the cached precompiled environment.*`
-## 🚀 Quickstart
-### Testing
-We provide the best checkpoints of DDQNs, which are trained using the best settings of: {factored representation, adaptive reward shifting, `discount_factor=0.9998` } in certain problem sizes at `resources/ddqn_ckpts`.
+---
 
-To replicate the results reported in the paper, follow the notebook [test.ipynb](notebooks/test.ipynb):
-1. Initialize the DDQN and OneMax environment objects.
-2. Load the trained checkpoint properly.
-3. Run (1+($\lambda$, $\lambda$))-GA and observe the ERT.
+## 🔬 How It Works: Step-by-Step
 
-**Note**: Please make sure you have the notebook kernel installed with the necessary packages.
+### Step 1: Extract Symbolic Formulas (`fit_sr`)
 
-### Baseline and Comparison
+Stage I uses Genetic Programming (`PySR`) to find concise algebraic equations that reproduce the actions taken by the best Deep-RL agents across normalized fitness $u = f(x)/n \in [0.5, 1.0)$.
 
-We compare our deep-RL multi-parameter control policies against the following baselines:
+#### Discovered Formula Shapes
 
-- $\pi_{\text{THEORY}}$: theory-derived single-parameter control policy [Doerr & Doerr, 2015/2018], where $\lambda_m = \sqrt{n/(n-f(x))}$
-- **IRACE**: multi-parameter control policy tuned by IRACE [Dang & Doerr, 2019]
-- **ONE-FIFTH**: single-parameter control policy based on the one-fifth success rule
-- $\pi_{\text{DDQN/sp}}$: single-parameter DDQN policy (controls $\lambda_m$ only) with adaptive reward shifting
-- $\pi_{\text{PPO/mp}}$: multi-parameter PPO with factored action space (naïve and fixed-shift reward)
-- $\pi_{\text{DDQN/mp}}$: **our best policy** — multi-parameter DDQN with factored action space and adaptive reward shifting
+- **$\lambda_m(u)$ (Mutation Size)**: $\lambda_m(u) = \frac{a_m}{b_m - u}$ (reserves large mutations exclusively for the final sprint).
+- **$\alpha(u)$ (Mutation Rate)**: $\alpha(u) = a_\alpha u^2 + b_\alpha u + c_\alpha$ (a gentle U-profile that dips mid-search so crossover can recombine solutions undisturbed).
+- **$\lambda_c(u)$ (Crossover Size)**: $\lambda_c(u) = \frac{a_c}{b_c - u}$ (scales aggressively to supply genetic repair candidates).
+- **$\beta(u)$ (Crossover Bias)**: Stays near constant $\approx 1.0$ (showing that varying crossover bias provides little algorithmic benefit).
 
-The table below reports normalized ERT (ERT/$n$, lower is better, std in parentheses) across 1,000 runs per problem size. Bold marks the best result.
+#### How to Run
 
-| Method | Parameter | Reward | $n=1{,}000$ | $n=1{,}500$ | $n=2{,}000$ |
-|--------|-----------|--------|-------------|-------------|-------------|
-| $\pi_{\text{THEORY}}$ | — | — | 6.587 (0.53) | 6.647 (0.44) | 6.681 (0.39) |
-| IRACE | — | — | 5.587 (0.35) | 5.621 (0.29) | 5.666 (0.26) |
-| ONE-FIFTH | — | — | 6.886 (0.54) | 6.931 (0.48) | 7.008 (0.41) |
-| DDQN | Single | AS | 6.338 (0.55) | 6.209 (0.41) | 6.608 (0.41) |
-| PPO | Multi/Fact | Naïve | 7.544 (1.39) | 7.938 (1.50) | 8.294 (1.44) |
-| PPO | Multi/Fact | FS ($b{=}{-7}$) | 7.016 (0.60) | 7.940 (1.45) | 8.267 (1.42) |
-| **DDQN** | **Multi/Fact** | **AS** | **5.397 (0.41)** | **4.971 (0.29)** | **5.162 (0.29)** |
-
-DDQN with factored action space and adaptive reward shifting ($\pi_{\text{DDQN/mp}}$) consistently outperforms all baselines, including the strongest IRACE-based approach that also tunes all four parameters of the $(1+(\lambda,\lambda))$-GA. PPO with factored action space suffers from policy collapse in this DAC setting, failing to converge to a meaningful policy regardless of the reward shifting strategy applied.
-
-Detail of baselines and pre-computed runtimes, please check [resources/README.md](./resources/README.md).
-
-### Training
-
-Experiments are organized by algorithm (DDQN / PPO) and action space representation (combinatorial / factored). Implementations are in [xdac/comb_ddqn.py](xdac/comb_ddqn.py) and [xdac/fact_ddqn.py](xdac/fact_ddqn.py) for DDQN, and [xdac/train_comb_ppo.py](xdac/train_comb_ppo.py) / [xdac/train_fact_ppo.py](xdac/train_fact_ppo.py) for PPO.
-
-#### DDQN
-
-Both combinatorial and factored variants are trained with `train_ddqn.py`. Switch the config file to change the action space or enable adaptive reward shifting (`as`).
+Use [`scripts/fit_sr.sh`](scripts/fit_sr.sh) or [`xdac/fit_sr.py`](xdac/fit_sr.py):
 
 ```bash
-# Factored action space, adaptive reward shifting, n=100 (best setting from paper)
+# Fit all 4 parameters sequentially (lbd_m, alpha, lbd_c, beta)
+./scripts/fit_sr.sh
+
+# Or fit an individual parameter (0: lbd_m, 1: alpha, 2: lbd_c, 3: beta)
+./scripts/fit_sr.sh 0
+
+# Customize CPU cores or iterations if desired
+NCPUS=16 NITERATIONS=5000 ./scripts/fit_sr.sh 0
+```
+
+Direct Python command:
+```bash
+python xdac/fit_sr.py --target 0 --ncpus 16 --niterations 5000 --out-dir outputs
+```
+
+Results are saved to `outputs/<date>/<time>/`, including raw Pareto front CSVs, selected formula summaries, and fit plots.
+
+---
+
+### Step 2: Calibrate Formula Constants (`tune_formulas`)
+
+Formulas extracted from discrete-action networks can inherit slight rounding or quantization artifacts. Stage II calibrates the continuous numbers in the formulas directly against total solution evaluations using SMAC3 Multi-Fidelity Hyperband.
+
+#### Two Policy Styles
+
+You can tune either of two architectures:
+
+1. **`e2e_policy` (End-to-End, 10 parameters)**: Purely machine-discovered formulas for all four parameters.
+2. **`co_design_policy` (Co-Design, 7 parameters)**: The top performer overall. Pairs machine-discovered rational scaling with domain-expert thresholds (e.g. keeping $\lambda_m = 1$ during early exploration, then switching to the rational curve near the optimum).
+
+#### How to Run
+
+Use [`scripts/tune_formulas.sh`](scripts/tune_formulas.sh) or [`xdac/tune_formulas.py`](xdac/tune_formulas.py):
+
+```bash
+# Tune both e2e_policy and co_design_policy sequentially
+./scripts/tune_formulas.sh
+
+# Tune co_design_policy only using 32 worker CPUs
+./scripts/tune_formulas.sh co_design_policy --total-cpus 32
+
+# Parameter ablation: optimize only alpha, lbd_c, and beta while fixing lbd_m
+./scripts/tune_formulas.sh e2e_policy --combine alpha lbd_c beta
+```
+
+Direct Python command:
+```bash
+python xdac/tune_formulas.py \
+    --policy co_design_policy \
+    --problem-sizes 100 200 500 1000 1500 2000 \
+    --total-cpus 32 \
+    --out-dir outputs
+```
+
+Outputs are saved under `outputs/tune_default/<policy>/<timestamp>/` with:
+- `incumbent_<policy>.json`: Optimal parameter constants.
+- `summary.json`: Detailed validation comparison between default anchors and tuned results.
+
+---
+
+### Step 3: Test Generalization & Scale-Up (`test_sr`)
+
+Test how well the resulting policies perform across problem sizes from $n = 100$ up to $n = 40{,}000$ using a high-speed vectorized OneMax simulation (`FastOneMax`).
+
+#### Performance Highlights
+
+- **Up to 31%–34% faster than standard theoretical baselines** ($\pi_{\text{THEORY}}$).
+- **Outperforms IRACE-tuned static parameters and handcrafted heuristics**.
+- **Evaluates in $O(1)$ time per step** with no neural network inferences.
+
+#### How to Run
+
+Use [`scripts/test_sr.sh`](scripts/test_sr.sh) or [`xdac/test_sr.py`](xdac/test_sr.py):
+
+```bash
+# Evaluate co_design_policy across all benchmark sizes up to n=40,000
+./scripts/test_sr.sh --policy co_design_policy
+
+# Evaluate e2e_policy
+./scripts/test_sr.sh --policy e2e_policy
+
+# Evaluate the handcrafted baseline for comparison
+./scripts/test_sr.sh --policy handcrafted_policy
+
+# Run ablation: see how performance changes if lbd_m is turned off
+./scripts/test_sr.sh --policy e2e_policy --combine alpha lbd_c beta
+
+# Quick debugging run on small sizes with fewer runs
+./scripts/test_sr.sh -p co_design_policy -n 100 500 --n-reps 50 --n-cpus 8
+```
+
+Direct Python command:
+```bash
+python xdac/test_sr.py \
+    --policy co_design_policy \
+    --problem-sizes 100 500 2000 3000 4000 5000 10000 20000 30000 40000 \
+    --n-reps 1000 \
+    --total-cpus 64 \
+    --out-dir outputs
+```
+
+---
+
+### Optional: Re-extract Trajectories from Raw Logs
+
+The pre-extracted trajectory dataset is already provided in [`resources/trajectories/best_ddqn_policies_n100_2000.pkl`](resources/trajectories/best_ddqn_policies_n100_2000.pkl). 
+
+If you retrain your own DDQN models and wish to re-extract the best trajectories across all runs, simply run:
+
+```bash
+python xdac/extract_trajectories.py
+```
+
+This scans `resources/exps/`, finds the runs with the lowest Expected Running Time (ERT) for each dimension $n$, and writes the consolidated pickle file.
+
+---
+
+## 🤖 Upstream Deep-RL Oracles
+
+For researchers interested in inspecting or retraining the neural agents that served as the teacher models:
+
+### Pre-trained Model Checkpoints
+Pre-trained Factored DDQN weights across $n \in \{100, 200, 500, 1000, 1500, 2000\}$ are stored in `resources/ddqn_ckpts/`. You can load and test them interactively via [`notebooks/test.ipynb`](notebooks/test.ipynb).
+
+### Training Neural Agents
+
+```bash
+# Train Factored DDQN (n=100)
 python xdac/train_ddqn.py \
     --config-file xdac/configs/onemax_n100_fmp_as.yml \
     --gamma 0.9998 \
@@ -209,123 +302,16 @@ python xdac/train_ddqn.py \
     --out-dir outputs \
     --n-cpus 4
 
-# Combinatorial action space, no reward shifting, n=100
-python xdac/train_ddqn.py \
-    --config-file xdac/configs/onemax_n100_cmp.yml \
-    --gamma 0.9998 \
-    --seed 1 \
-    --out-dir outputs \
-    --n-cpus 4
-```
-
-Config naming: `onemax_n{N}_{cmp|fmp}[_as].yml` where `cmp`/`fmp` = combinatorial/factored and `as` = adaptive reward shifting.
-
-#### PPO
-
-Combinatorial and factored variants use separate scripts. Both accept the same arguments; only the script and config differ.
-
-```bash
-# Factored action space, n=100
+# Train Factored PPO (n=100)
 python xdac/train_fact_ppo.py \
     --setting-file xdac/configs/onemax_n100_mp_ppo.yml \
     --seed 1 \
     --out-dir outputs \
     --n-cpus 4
-
-# Combinatorial action space, n=100
-python xdac/train_comb_ppo.py \
-    --setting-file xdac/configs/onemax_n100_mp_ppo_comb.yml \
-    --seed 1 \
-    --out-dir outputs \
-    --n-cpus 4
 ```
 
-For reward-shifting ablations (bias $b \in \{0, -1, -3, -5, -7\}$), use the configs under `xdac/configs/ablation_ppo/`, e.g. `onemax_n100_mp_ppo_fs7.yml`.
+---
 
-## 🔬 Symbolic Policy Discovery
+## 📄 License
 
-The symbolic policy discovery framework consists of a two-stage distillation pipeline:
-
-### Stage I: Behavioral Distillation via Symbolic Regression (PySR)
-
-In Stage I, Factored DDQN policy trajectories ($s \to a$) are distilled into parsimonious symbolic mathematical formulas using Genetic Programming Symbolic Regression (`PySR`). Trajectory state-action pairs are loaded from `resources/trajectories/best_ddqn_policies_n100_2000.pkl` across problem sizes $n \in \{100, 200, 500, 1000, 1500, 2000\}$.
-
-You can run the distillation pipeline across all four parameters ($\lambda_m, \alpha, \lambda_c, \beta$) or fit individual parameters using `scripts/fit_pysr.sh`:
-
-```bash
-# Run PySR fitting for all 4 parameters sequentially (targets 0, 1, 2, 3):
-./scripts/fit_pysr.sh
-
-# Or fit a specific target parameter (0: lambda_m, 1: alpha, 2: lambda_c, 3: beta):
-./scripts/fit_pysr.sh 0
-
-# Override hyperparameters via environment variables if desired:
-NCPUS=12 NITERATIONS=5000 ./scripts/fit_pysr.sh 0
-```
-
-Alternatively, invoke `fit_pysr.py` directly:
-
-```bash
-python xdac/fit_pysr.py \
-    --target 0 \
-    --ncpus 12 \
-    --niterations 5000 \
-    --maxsize 12 \
-    --parsimony 0.0001 \
-    --population-size 50 \
-    --loss mse \
-    --out-dir outputs
-```
-
-**Artifacts & Output Structure**:
-All artifacts from Stage I are saved under `outputs/<date>/<time>/`:
-```plaintext
-outputs/<date>/<time>/
-├── config.yaml                     # Full run arguments and environment metadata
-├── fit_pysr.log                    # Execution console log
-├── equations_target_<T>.csv        # Raw Pareto front discovered by PySR
-├── filtered_pareto_target_<T>.csv  # Candidate validation and selection metrics
-├── selected_skeleton_target_<T>.txt# Winning mathematical skeleton equation
-├── model_target_<T>.pkl            # Serialized PySR model
-├── plots/
-│   └── target=<T>.png              # Pareto front and fit visualization
-└── pysr_target_<T>/                # PySR internal checkpoint files and Hall of Fame
-```
-
-### Stage II: Online Environmental Calibration (SMAC3)
-
-This corresponds to **Stage II** of the symbolic policy discovery pipeline: the hand-crafted equations (Eqs. 11–13 in the paper) are re-parameterized with four free variables — `lbd1_breaking_point` (κm), `lbd2_amplified_factor` (ω), `alpha_breaking_point` (κα), and `alpha_abyss` (υ) — and optimized via SMAC3 using a multi-fidelity Hyperband strategy. The incumbent is saved to `outputs/smac3/<timestamp>.json`.
-
-```bash
-python xdac/tune_derive_mp_policy.py    \
-    --problem-sizes 200 500 1000 2000   \   ## Problem sizes used as the SMAC3 objective (default: 100 500)
-    --total-budget 1000000              \   ## Total fidelity budget for SMAC3 (default: 1e6)
-    --total-cpus 20                         ## CPUs for parallel evaluation (default: all available)
-```
-
-The search space matches Table VI in the paper:
-
-| Parameter | Variable | Search space | Hand-crafted default |
-|-----------|----------|--------------|----------------------|
-| Switching point for λm | `lbd1_breaking_point` (κm) | [0.5, 1.0) | 0.95 |
-| Amplification factor for λc | `lbd2_amplified_factor` (ω) | [1.0, 5.0] | 2.0 |
-| Switching point for α | `alpha_breaking_point` (κα) | [0.5, 1.0) | 0.95 |
-| Lower bound for α | `alpha_abyss` (υ) | [0.001, 0.1] | 0.001 |
-
-**Output**: the best configuration and its normalized ERT cost are written to `outputs/smac3/<timestamp>.json`.
-
-### Logs
-
-During the process, we can monitor the logs by following the path `outputs/<date>/<config-file-name>/gamma:<value>/<time>_seed_<#>`. In this directory:
-
-```plaintext
-outputs/<date>/<config-file-name>/gamma:<value>/<time>_seed_<#>/
-├── <config-file-name>.yml          # Training configuration is stored here
-├── train_args.json                 # Additional configuration during the training 
-├── eval/                           
-|   ├── best_model.pt               # best checkpoint of the trained model
-|   ├── evaluation.npz              # policies and expected runtimes during the evaluation
-|   ├── evaluation_last.npz         # top-k best policies are used for testing after finishing the training
-|   ├── Policy Comparison.png       # the best policy line chart of 4 parameters across DDQN and theory-derived theory
-|   └── runtimes_logs_cpus:<#n_cpus>.json   # training time logs
-```
+This repository is licensed under the [MIT License](LICENSE).

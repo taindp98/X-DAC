@@ -1,0 +1,89 @@
+{
+    "experiment": {
+        "n_cores": 1,
+        "log_level": 1,
+        "n_episodes": 100000,
+        "n_steps": 200000,
+        "save_interval": 2000,
+        "eval_interval": 2000,
+        "eval_n_episodes": 100,
+        "seed": 4
+    },
+    "bench": {
+        "name": "OLLGAFactTheory",
+        "discrete_action": true,
+        "action_choices": [
+            [
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64
+            ],
+            [
+                0.25,
+                0.542,
+                0.833,
+                1.125,
+                1.417,
+                1.708,
+                2.0
+            ],
+            [
+                1,
+                2,
+                4,
+                8,
+                16,
+                32,
+                64
+            ],
+            [
+                0.25,
+                0.542,
+                0.833,
+                1.125,
+                1.417,
+                1.708,
+                2.0
+            ]
+        ],
+        "problem": "OneMax",
+        "instance_set_path": "om_ollga_1000_medium.csv",
+        "observation_description": "n,f(x)",
+        "reward_choice": "imp_minus_evals_shifting"
+    },
+    "eval_env": {
+        "reward_choice": "minus_evals"
+    },
+    "agent": {
+        "name": "factored_ddqn",
+        "epsilon": 0.2,
+        "begin_learning_after": 10000,
+        "batch_size": 2048,
+        "gamma": 0.9998,
+        "lr": 0.001,
+        "loss_function": "mse_loss",
+        "net_arch": [
+            50,
+            50
+        ]
+    },
+    "train_args": {
+        "episodes": 100000,
+        "max_env_time_steps": 1000000000,
+        "epsilon": 0.2,
+        "epsilon_decay": false,
+        "epsilon_decay_end_point": 0.5,
+        "epsilon_decay_end_value": 0.05,
+        "eval_every_n_steps": 2000,
+        "n_eval_episodes_per_instance": 50,
+        "save_agent_at_every_eval": false,
+        "max_train_time_steps": 200000,
+        "begin_learning_after": 10000,
+        "batch_size": 2048,
+        "log_level": 1
+    }
+}

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environments & Local Configs
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# Jupyter & IDE
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Julia package caches
+.julia/
+.julia_env/
+
+# OS / Temporary
+.DS_Store
+*.tmp
+
