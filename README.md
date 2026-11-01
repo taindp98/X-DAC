@@ -54,8 +54,8 @@ Rather than keeping the learned policy locked inside a neural network, our pipel
 ```mermaid
 flowchart LR
     A["1. Deep-RL Teacher<br/>(Factored DDQN Agent)"] --> B["2. Symbolic Distillation<br/>(PySR Formula Discovery)"]
-    B --> C["3. Hyperparameter Calibration<br/>(SMAC3 Multi-Fidelity)"]
-    C --> D["4. Zero-Shot Deployment<br/>(Scales up to n=40,000)"]
+    B --> C["3. Parameter Refinement<br/>(SMAC3 Multi-Fidelity)"]
+    C --> D["4. Zero-Shot Testing<br/>(Scales up to n=40,000)"]
 ```
 
 ### Key Takeaways from the Discovered Rules
